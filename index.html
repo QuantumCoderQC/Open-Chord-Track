@@ -3,77 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Open Chord Track | D Major Detector</title>
+    <title>Open Chord Track</title>
     
     <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia.js-core.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia-wasm.web.js"></script>
 
     <style>
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background-color: #0e0e0e;
-            color: #ffffff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }
-
-        #score-container {
-            background: #1a1a1a;
-            padding: 40px;
-            border-radius: 20px;
-            border: 2px solid #333;
-            text-align: center;
-            width: 320px;
-            transition: border-color 0.3s;
-        }
-
-        #score-text { font-size: 4rem; font-weight: bold; margin: 10px 0; color: #00f2ff; }
-        #status-text { font-size: 1.2rem; color: #888; margin-bottom: 20px; }
-
-        .btn {
-            background: #00f2ff;
-            color: #000;
-            border: none;
-            padding: 15px 40px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            border-radius: 50px;
-            cursor: pointer;
-            text-transform: uppercase;
-        }
-
-        .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
-
-        #visualizer {
-            display: flex;
-            gap: 4px;
-            margin-top: 20px;
-            height: 60px;
-            align-items: flex-end;
-            justify-content: center;
-        }
-
-        .bin { width: 14px; background: #333; border-radius: 2px 2px 0 0; min-height: 2px; }
-        .bin.active { background: #00f2ff; box-shadow: 0 0 10px #00f2ff; }
-        
-        .chord-indicator { color: #00f2ff; font-weight: bold; display: none; margin-top: 10px; }
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; padding-top: 50px; }
+        #container { background: #1e1e1e; padding: 30px; border-radius: 15px; display: inline-block; border: 2px solid #333; }
+        .btn { background: #00f2ff; color: black; padding: 15px 30px; border: none; border-radius: 30px; font-weight: bold; cursor: pointer; }
+        .btn:disabled { background: #444; cursor: not-allowed; }
+        #score { font-size: 3rem; color: #00f2ff; margin: 20px 0; }
+        #visualizer { display: flex; gap: 4px; justify-content: center; height: 50px; align-items: flex-end; }
+        .bin { width: 10px; background: #333; min-height: 2px; }
+        .bin.active { background: #00f2ff; }
     </style>
 </head>
 <body>
 
-    <h1 style="color: #00f2ff; letter-spacing: 2px;">OPEN CHORD TRACK</h1>
-
-    <div id="score-container">
-        <div id="status-text">Initializing Engine...</div>
+    <h1>OPEN CHORD TRACK</h1>
+    <div id="container">
+        <div id="status">Loading Engine...</div>
         <button id="startBtn" class="btn" disabled>Wait...</button>
         
-        <div id="mainUI" style="display: none;">
-            <div id="score-text">0.00</div>
-            <div id="detection-msg" class="chord-indicator">★ D MAJOR ★</div>
+        <div id="ui" style="display:none;">
+            <div id="score">0.00</div>
             <div id="visualizer">
                 <div class="bin"></div><div class="bin"></div><div class="bin"></div>
                 <div class="bin"></div><div class="bin"></div><div class="bin"></div>
@@ -87,100 +41,87 @@
         let essentia;
         let audioCtx;
         
-        // Target: D (idx 2), F# (idx 6), A (idx 9)
-        const D_MAJOR_TEMPLATE = [0, 0, 1.0, 0, 0, 0, 0.8, 0, 0, 0.9, 0, 0];
-        const ENERGY_THRESHOLD = 0.04;
-        const MATCH_THRESHOLD = 0.82;
+        // D Major Template: [C, C#, D, D#, E, F, F#, G, G#, A, A#, B]
+        const D_MAJOR = [0, 0, 1.0, 0, 0, 0, 0.8, 0, 0, 0.9, 0, 0];
 
-        async function init() {
-            const status = document.getElementById('status-text');
+        function init() {
             const btn = document.getElementById('startBtn');
+            const status = document.getElementById('status');
 
-            // Find the WASM backend dynamically
-            const wasmBackend = window.EssentiaWASMv1 || window.EssentiaWASM || (window.EssentiaJS && window.EssentiaJS.EssentiaWASM);
+            // Find the Constructor (Class) and the Backend (WASM)
+            // Different versions use different global names; we check them all.
+            const EssentiaClass = window.Essentia; 
+            const wasmBackend = window.EssentiaWASMv1 || window.EssentiaWASM;
 
-            if (wasmBackend && window.Essentia) {
+            if (EssentiaClass && wasmBackend) {
                 try {
-                    essentia = new Essentia(wasmBackend);
+                    // This is the line that was failing for you.
+                    // We ensure we are calling 'new' on the Class, passing the WASM object.
+                    essentia = new EssentiaClass(wasmBackend);
+                    
                     status.innerText = "Engine Ready";
-                    btn.innerText = "Start Listening";
+                    btn.innerText = "Start Strumming";
                     btn.disabled = false;
-                    btn.addEventListener('click', startAudio);
+                    btn.onclick = startAudio;
                 } catch (e) {
-                    status.innerText = "Error initializing WASM";
-                    console.error(e);
+                    status.innerText = "Init Error: " + e.message;
                 }
             } else {
-                status.innerText = "Library not found. Retrying...";
-                setTimeout(init, 500); // Check again in 500ms
+                status.innerText = "Waiting for scripts...";
+                setTimeout(init, 500);
             }
         }
 
         async function startAudio() {
             document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('status-text').innerText = "Play a D Major Chord";
-            document.getElementById('mainUI').style.display = 'block';
+            document.getElementById('ui').style.display = 'block';
+            document.getElementById('status').innerText = "Target: D Major Chord";
 
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const source = audioCtx.createMediaStreamSource(stream);
-            
-            // Note: ScriptProcessor is deprecated but most compatible for simple hobby projects
             const processor = audioCtx.createScriptProcessor(8192, 1, 1);
+
             source.connect(processor);
             processor.connect(audioCtx.destination);
 
             processor.onaudioprocess = (e) => {
-                const inputData = e.inputBuffer.getChannelData(0);
-                const vector = essentia.arrayToVector(inputData);
-                const energy = essentia.RMS(vector);
+                const input = e.inputBuffer.getChannelData(0);
+                const vector = essentia.arrayToVector(input);
 
-                if (energy < ENERGY_THRESHOLD) {
-                    updateUI(0, [], false);
-                    return;
+                if (essentia.RMS(vector) > 0.04) {
+                    const hpcp = essentia.HPCP(vector).vectorToArray();
+                    const clean = hpcp.map(v => Math.pow(v, 2));
+                    const score = calculateSimilarity(clean, D_MAJOR);
+                    updateUI(score, clean);
+                } else {
+                    updateUI(0, []);
                 }
-
-                // HPCP extraction (12-bin chroma)
-                const hpcp = essentia.HPCP(vector).vectorToArray();
-                
-                // Enhancement: Square the values to reduce noise bleed (Python logic)
-                const cleanChroma = hpcp.map(v => Math.pow(v, 2));
-                const score = calculateSimilarity(cleanChroma, D_MAJOR_TEMPLATE);
-
-                updateUI(score, cleanChroma, score > MATCH_THRESHOLD);
             };
         }
 
         function calculateSimilarity(v1, v2) {
-            let dot = 0, mag1 = 0, mag2 = 0;
+            let dot = 0, m1 = 0, m2 = 0;
             for (let i = 0; i < 12; i++) {
                 dot += v1[i] * v2[i];
-                mag1 += v1[i] * v1[i];
-                mag2 += v2[i] * v2[i];
+                m1 += v1[i] * v1[i];
+                m2 += v2[i] * v2[i];
             }
-            return dot / (Math.sqrt(mag1) * Math.sqrt(mag2) + 1e-9);
+            return dot / (Math.sqrt(m1) * Math.sqrt(m2) + 1e-9);
         }
 
-        function updateUI(score, chroma, isMatch) {
-            document.getElementById('score-text').innerText = score.toFixed(2);
-            const msg = document.getElementById('detection-msg');
-            msg.style.display = isMatch ? 'block' : 'none';
-            
-            const container = document.getElementById('score-container');
-            container.style.borderColor = isMatch ? '#00f2ff' : '#333';
-
+        function updateUI(score, chroma) {
+            document.getElementById('score').innerText = score.toFixed(2);
             const bins = document.querySelectorAll('.bin');
-            if (chroma.length > 0) {
+            if (chroma.length) {
                 const max = Math.max(...chroma);
-                chroma.forEach((val, i) => {
-                    const height = (val / (max + 0.001)) * 60;
-                    bins[i].style.height = `${Math.max(2, height)}px`;
-                    bins[i].className = (val/max > 0.4) ? "bin active" : "bin";
+                chroma.forEach((v, i) => {
+                    bins[i].style.height = (v/max * 50) + 'px';
+                    bins[i].className = (v/max > 0.4) ? 'bin active' : 'bin';
                 });
             }
         }
 
-        // Start initialization when page loads
         window.onload = init;
     </script>
 </body>
