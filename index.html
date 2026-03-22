@@ -1,74 +1,151 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Guitar Chord Detector</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Chord Track | D Major Detector</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.0/dist/essentia.js-core.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.0/dist/essentia-wasm.module.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.0/dist/essentia-wasm.web.js"></script>
+
     <style>
-        body { font-family: sans-serif; text-align: center; background: #121212; color: white; padding-top: 50px; }
-        #score-display { font-size: 3em; margin: 20px; color: #00ffcc; }
-        #status { font-size: 1.5em; color: #ffcc00; }
-        button { padding: 15px 30px; font-size: 1.2em; cursor: pointer; border-radius: 10px; border: none; background: #00ffcc; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0e0e0e;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        h1 { color: #00f2ff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }
+        
+        #score-container {
+            background: #1a1a1a;
+            padding: 40px;
+            border-radius: 20px;
+            border: 2px solid #333;
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.1);
+            text-align: center;
+            width: 300px;
+        }
+
+        #score-text { font-size: 4rem; font-weight: bold; margin: 10px 0; color: #00f2ff; }
+        #status-text { font-size: 1.2rem; color: #888; height: 1.5em; }
+
+        .btn {
+            background: #00f2ff;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+            text-transform: uppercase;
+        }
+
+        .btn:hover { background: #00d1db; transform: scale(1.05); }
+        .btn:active { transform: scale(0.95); }
+
+        #visualizer {
+            display: flex;
+            gap: 4px;
+            margin-top: 20px;
+            height: 40px;
+            align-items: flex-end;
+        }
+
+        .bin { width: 12px; background: #333; transition: height 0.1s; border-radius: 2px 2px 0 0; }
+        .bin.active { background: #00f2ff; box-shadow: 0 0 10px #00f2ff; }
     </style>
 </head>
 <body>
-    <h1>D Major Chord Detector</h1>
-    <button id="startBtn">Start Microphone</button>
-    <div id="score-display">Score: 0.00</div>
-    <div id="status">Waiting...</div>
 
-    <script type="module">
+    <h1>Open Chord Track</h1>
+
+    <div id="score-container">
+        <button id="startBtn" class="btn">Start Listening</button>
+        <div id="mainUI" style="display: none;">
+            <div id="status-text">Strum a D Major Chord</div>
+            <div id="score-text">0.00</div>
+            <div id="visualizer">
+                <div class="bin"></div><div class="bin"></div><div class="bin"></div>
+                <div class="bin"></div><div class="bin"></div><div class="bin"></div>
+                <div class="bin"></div><div class="bin"></div><div class="bin"></div>
+                <div class="bin"></div><div class="bin"></div><div class="bin"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
         let essentia;
-        const startBtn = document.getElementById('startBtn');
-        const scoreDiv = document.getElementById('score-display');
-        const statusDiv = document.getElementById('status');
-
+        let audioCtx;
+        
         // D Major Template: [C, C#, D, D#, E, F, F#, G, G#, A, A#, B]
+        // Weights: D=1.0, F#=0.8, A=0.9
         const D_MAJOR_TEMPLATE = [0, 0, 1.0, 0, 0, 0, 0.8, 0, 0, 0.9, 0, 0];
-        const ENERGY_THRESHOLD = 0.05;
+        const ENERGY_THRESHOLD = 0.04;
+        const MATCH_THRESHOLD = 0.85;
 
+        // Initialize Essentia
         async function init() {
-            // Load Essentia.js
-            const EssentiaWASM = await EssentiaJS.buildWasm();
-            essentia = new EssentiaJS.Essentia(EssentiaWASM);
-            
-            startBtn.addEventListener('click', startAudio);
+            try {
+                // EssentiaWASMv1 is the global variable from essentia-wasm.web.js
+                essentia = new Essentia(EssentiaWASMv1);
+                console.log("Open Chord Track: Engine Ready");
+                document.getElementById('startBtn').addEventListener('click', startAudio);
+            } catch (err) {
+                console.error("Failed to load Essentia:", err);
+                document.getElementById('startBtn').innerText = "Load Error";
+            }
         }
 
         async function startAudio() {
-            startBtn.style.display = 'none';
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            // Hide button, show UI
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('mainUI').style.display = 'block';
+
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const source = audioCtx.createMediaStreamSource(stream);
             
-            // Set up processing node (replaces your audio_callback)
+            // ScriptProcessor handles the real-time buffer
             const processor = audioCtx.createScriptProcessor(8192, 1, 1);
             source.connect(processor);
             processor.connect(audioCtx.destination);
 
+            const bins = document.querySelectorAll('.bin');
+
             processor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
                 
-                // 1. Calculate Energy (Volume)
-                const energy = essentia.RMS(inputData);
+                // 1. Convert float32 array to Essentia-compatible vector
+                const vector = essentia.arrayToVector(inputData);
+
+                // 2. Check Volume (RMS)
+                const energy = essentia.RMS(vector);
                 if (energy < ENERGY_THRESHOLD) {
-                    statusDiv.innerText = "Silence...";
+                    updateUI(0, [], "Silence...");
                     return;
                 }
 
-                // 2. Extract Chroma (The "Librosa" part)
-                // Essentia's HPCP is a high-precision chroma feature
-                const hpcp = essentia.HPCP(essentia.arrayToVector(inputData)).vectorToArray();
+                // 3. Extract HPCP (Chroma)
+                const hpcp = essentia.HPCP(vector).vectorToArray();
 
-                // 3. Squaring the Chroma (Your secret sauce)
+                // 4. Square values for peak enhancement (Your Python logic)
                 const cleanChroma = hpcp.map(v => Math.pow(v, 2));
 
-                // 4. Cosine Similarity (The "Numpy" part)
+                // 5. Cosine Similarity
                 const score = calculateSimilarity(cleanChroma, D_MAJOR_TEMPLATE);
 
-                // UI Update
-                scoreDiv.innerText = `Score: ${score.toFixed(2)}`;
-                statusDiv.innerText = score > 0.85 ? "★ D MAJOR DETECTED ★" : "Keep Strumming...";
+                // 6. Update UI
+                updateUI(score, cleanChroma, score > MATCH_THRESHOLD ? "★ MATCHED ★" : "Listening...");
             };
         }
 
@@ -80,6 +157,28 @@
                 mag2 += v2[i] * v2[i];
             }
             return dot / (Math.sqrt(mag1) * Math.sqrt(mag2) + 1e-9);
+        }
+
+        function updateUI(score, chroma, status) {
+            const scoreText = document.getElementById('score-text');
+            const statusText = document.getElementById('status-text');
+            const bins = document.querySelectorAll('.bin');
+
+            scoreText.innerText = score.toFixed(2);
+            statusText.innerText = status;
+            statusText.style.color = score > MATCH_THRESHOLD ? "#00f2ff" : "#888";
+
+            // Update visualizer bins
+            if (chroma.length > 0) {
+                const max = Math.max(...chroma);
+                chroma.forEach((val, i) => {
+                    const height = (val / (max + 1e-9)) * 40;
+                    bins[i].style.height = `${height}px`;
+                    bins[i].className = val/max > 0.4 ? "bin active" : "bin";
+                });
+            } else {
+                bins.forEach(b => b.style.height = "2px");
+            }
         }
 
         init();
