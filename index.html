@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Guitar Chord Detector</title>
+    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.0/dist/essentia.js-core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.0/dist/essentia-wasm.module.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #121212; color: white; padding-top: 50px; }
+        #score-display { font-size: 3em; margin: 20px; color: #00ffcc; }
+        #status { font-size: 1.5em; color: #ffcc00; }
+        button { padding: 15px 30px; font-size: 1.2em; cursor: pointer; border-radius: 10px; border: none; background: #00ffcc; }
+    </style>
+</head>
+<body>
+    <h1>D Major Chord Detector</h1>
+    <button id="startBtn">Start Microphone</button>
+    <div id="score-display">Score: 0.00</div>
+    <div id="status">Waiting...</div>
+
+    <script type="module">
+        let essentia;
+        const startBtn = document.getElementById('startBtn');
+        const scoreDiv = document.getElementById('score-display');
+        const statusDiv = document.getElementById('status');
+
+        // D Major Template: [C, C#, D, D#, E, F, F#, G, G#, A, A#, B]
+        const D_MAJOR_TEMPLATE = [0, 0, 1.0, 0, 0, 0, 0.8, 0, 0, 0.9, 0, 0];
+        const ENERGY_THRESHOLD = 0.05;
+
+        async function init() {
+            // Load Essentia.js
+            const EssentiaWASM = await EssentiaJS.buildWasm();
+            essentia = new EssentiaJS.Essentia(EssentiaWASM);
+            
+            startBtn.addEventListener('click', startAudio);
+        }
+
+        async function startAudio() {
+            startBtn.style.display = 'none';
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+            
+            // Set up processing node (replaces your audio_callback)
+            const processor = audioCtx.createScriptProcessor(8192, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                
+                // 1. Calculate Energy (Volume)
+                const energy = essentia.RMS(inputData);
+                if (energy < ENERGY_THRESHOLD) {
+                    statusDiv.innerText = "Silence...";
+                    return;
+                }
+
+                // 2. Extract Chroma (The "Librosa" part)
+                // Essentia's HPCP is a high-precision chroma feature
+                const hpcp = essentia.HPCP(essentia.arrayToVector(inputData)).vectorToArray();
+
+                // 3. Squaring the Chroma (Your secret sauce)
+                const cleanChroma = hpcp.map(v => Math.pow(v, 2));
+
+                // 4. Cosine Similarity (The "Numpy" part)
+                const score = calculateSimilarity(cleanChroma, D_MAJOR_TEMPLATE);
+
+                // UI Update
+                scoreDiv.innerText = `Score: ${score.toFixed(2)}`;
+                statusDiv.innerText = score > 0.85 ? "★ D MAJOR DETECTED ★" : "Keep Strumming...";
+            };
+        }
+
+        function calculateSimilarity(v1, v2) {
+            let dot = 0, mag1 = 0, mag2 = 0;
+            for (let i = 0; i < 12; i++) {
+                dot += v1[i] * v2[i];
+                mag1 += v1[i] * v1[i];
+                mag2 += v2[i] * v2[i];
+            }
+            return dot / (Math.sqrt(mag1) * Math.sqrt(mag2) + 1e-9);
+        }
+
+        init();
+    </script>
+</body>
+</html>
